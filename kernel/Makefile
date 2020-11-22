@@ -1,20 +1,29 @@
 BITS := 32
 RM	:= rm -f
+
 # linux 下编译器的地址，可能根据不同的操作系统有所修改
 GCCPREFIX := riscv64-unknown-elf-
 LD	:= $(GCCPREFIX)ld
 CC	:= $(GCCPREFIX)gcc
 AS  := $(GCCPREFIX)as
 OBJDUMP := $(GCCPREFIX)objdump
+
 MODULE	:= init
 OBJDIR	:= obj
 INCLUDE	:= include
 SRCDIR	:= kern
+
 SRC	:= $(foreach sdir, $(SRCDIR), $(wildcard $(sdir)/*.S))
+C_SRC	:= $(foreach sdir, $(SRCDIR), $(wildcard $(sdir)/**/*.c))
 HEADER	:= $(foreach sdir, $(INCLUDE), $(wildcard $(sdir)/*.h))
+
 OBJ	:= $(patsubst $(SRCDIR)/%.S, $(OBJDIR)/%.o, $(SRC))
+C_OBJ	:= $(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(C_SRC))
+OBJDIRS = $(sort $(dir $(C_OBJ) $(OBJ)))
+
 TARGET	:= kernel.elf
 ASFLAGS	:= -D__ASSEMBLY__ -g -fno-pic
+
 ifeq ($(BITS), 32)
 	ASFLAGS += -march=rv32i -mabi=ilp32 -DRV32
 	QEMU := qemu-system-riscv32
@@ -55,16 +64,19 @@ $(CONFIG_FILE):
 	@rm -f .config_*
 	touch $@
 
-$(TARGET): checkdirs $(OBJ) $(LDSCRIPT)
-	$(LD) $(OBJ) -T$(LDSCRIPT)
+$(TARGET): checkdirs $(OBJ) $(C_OBJ) $(LDSCRIPT)
+	$(LD) $(OBJ) $(C_OBJ) -T$(LDSCRIPT)
 
-checkdirs: $(OBJDIR)
+checkdirs: $(OBJDIRS)
 
-$(OBJDIR):
+$(OBJDIRS):
 	test -d $@ || mkdir $@
 
 $(OBJ): $(OBJDIR)/%.o : $(SRCDIR)/%.S $(CONFIG_FILE) $(HEADER)
 	$(CC) -o $@ $< -c -I$(INCLUDE) $(ASFLAGS)
+
+$(C_OBJ): $(OBJDIR)/%.o : $(SRCDIR)/%.c $(CONFIG_FILE) $(HEADER)
+	$(CC) -o $@ $< -c -I$(INCLUDE) -Wall -Werror -Wextra -pedantic $(ASFLAGS)
 
 kernel.bin: $(TARGET)
 	@$(GCCPREFIX)objcopy -j .text -j .text.* -j .rodata -j .data -O binary -v $< $@
